@@ -1,0 +1,9 @@
+*.log
+*.pot
+*.pyc
+*~
+*.save
+.svn
+local_settings.py
+build
+*.egg-info
