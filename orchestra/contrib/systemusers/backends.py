@@ -554,75 +554,39 @@ class UNIXUserControllerNewServers(ServiceController):
                 done
                 """) % context
             )
-        else:
-            self.append(textwrap.dedent("""
-                check_code=0
-                # Ensure no processes running as user to modify/create
-                if ps -u %(user)s &> /dev/null; then
-                    pkill -u %(user)s; sleep 3;
-                    pkill -9 -u %(user)s; sleep 2;
-                fi
-                                        
-                # Update/create user state for %(user)s
-                if id %(user)s &> /dev/null; then
-                    usermod %(user)s  \\
-                        --password '%(password)s' \\
-                        --shell '%(shell)s' \\
-                        --groups '%(groups)s' || check_code=$?
-                else
-                    useradd %(user)s --home '/%(user)s' \\
-                        --password '%(password)s' \\
-                        --shell '%(shell)s' \\
-                        --groups '%(groups)s' || check_code=$?
-                fi
-                                        
-                if [[ $check_code -ne 0 ]]; then
-                        exit check_code
-                fi
-                
-                # Ensure homedir exists and has correct perms
-                mkdir -p %(home)s 
-                chown %(user)s:%(user)s  %(home)s 
-                chmod 750 %(home)s 
+            
+            for member in settings.SYSTEMUSERS_DEFAULT_GROUP_MEMBERS:
+                context['member'] = member
+                self.append('usermod -a -G %(user)s %(member)s || exit_code=$?' % context)
 
-                # Create /chroots/$uid symlink into /home/$user.parent/webapps/
-                uid=$(id -u "%(user)s")
-                ln -n -f -s %(mainuser_home)s/webapps /chroots/$uid 
-            """) % context
-            )
-
-
-        for member in settings.SYSTEMUSERS_DEFAULT_GROUP_MEMBERS:
-            context['member'] = member
-            self.append('usermod -a -G %(user)s %(member)s || exit_code=$?' % context)
-        if not user.is_main:
-            self.append('usermod -a -G %(user)s %(mainuser)s || exit_code=$?' % context)
     
     def delete(self, user):
         context = self.get_context(user)
         if not context['user']:
             return
-        self.append(textwrap.dedent("""
-            if ! id %(user)s &> /dev/null; then 
-                echo "user %(user)s not exitst" >&2;
-                
-            else                                 
+        if user.is_main:
+            self.append(textwrap.dedent("""\
                 # Delete %(user)s user
-                if ps -u %(user)s &> /dev/null; then
-                    pkill -u %(user)s || true ; sleep 4;
-                    pkill -9 -u %(user)s || true ; sleep 1;
-                fi
-                                    
-                uid=$(id -u %(user)s)
+                nohup bash -c 'sleep 2 && killall -u %(user)s -s KILL' &> /dev/null &
+                killall -u %(user)s || true
                 userdel %(user)s || exit_code=$?
                 groupdel %(group)s || exit_code=$?
-                                        
-                mv %(home)s %(home)s.delete 
-                rm /chroots/$uid
-            fi
-            """) % context
-        )
+                """) % context
+            )
+            if context['deleted_home']:
+                self.append(textwrap.dedent("""\
+                    # Move home into SYSTEMUSERS_MOVE_ON_DELETE_PATH, nesting if exists.
+                    deleted_home="%(deleted_home)s"
+                    while [[ -e "$deleted_home" ]]; do
+                        deleted_home="${deleted_home}/$(basename ${deleted_home})"
+                    done
+                    mv '%(base_home)s' "$deleted_home" || exit_code=$?
+                    """) % context
+                )
+            else:
+                self.append("rm -fr -- '%(base_home)s'" % context)
     
+    # TODO: comprovar funciones que no se suelen utilizar
     def grant_permissions(self, user, context):
         context['perms'] = user.set_perm_perms
         # Capital X adds execution permissions for directories, not files
@@ -734,12 +698,10 @@ class UNIXUserControllerNewServers(ServiceController):
             )
     
     def get_groups(self, user):
+        groups = []
         if user.is_main:
             groups = list(user.account.systemusers.exclude(username=user.username).values_list('username', flat=True))
             groups.append("main-systemusers")
-            return groups
-        groups = list(user.groups.values_list('username', flat=True))
-        groups.append("webapp-systemusers")
         return groups 
     
     def get_context(self, user):
@@ -755,5 +717,5 @@ class UNIXUserControllerNewServers(ServiceController):
             'base_home': user.get_base_home(),
             'mainuser_home': user.main.get_home(),
         }
-        # context['deleted_home'] = settings.SYSTEMUSERS_MOVE_ON_DELETE_PATH % context
+        context['deleted_home'] = settings.SYSTEMUSERS_MOVE_ON_DELETE_PATH % context
         return replace(context, "'", '"')
