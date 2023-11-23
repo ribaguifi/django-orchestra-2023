@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     'orchestra.contrib.vps',
     'orchestra.contrib.saas',
     'orchestra.contrib.miscellaneous',
+    'orchestra.contrib.musician',
 
     # Third-party apps
     'django_extensions',
@@ -219,8 +220,22 @@ EMAIL_BACKEND = 'orchestra.contrib.mailer.backends.EmailBackend'
 DATA_UPLOAD_MAX_NUMBER_FIELDS = None
 
 
+############################
+## MUSICIAN CONFIGURATION ##
+############################
+
+# Direcction than go when you login
+LOGIN_REDIRECT_URL = 'musician:dashboard'
+
+# Where requests are redirected for login
+LOGIN_URL = 'musician:login'
+
+# The URL or named URL pattern where requests are redirected after logout
+LOGOUT_REDIRECT_URL = 'musician:login'
+
+
 #################################
-## 3RD PARTY APPS CONIGURATION ##
+## 3RD PARTY APPS CONFIGURATION ##
 #################################
 
 # Admin Tools
@@ -233,6 +248,7 @@ FLUENT_DASHBOARD_ICON_THEME = '../orchestra/icons'
 
 # Django-celery
 import djcelery
+
 djcelery.setup_loader()
 CELERYBEAT_SCHEDULER = 'djcelery.schedulers.DatabaseScheduler'
 
